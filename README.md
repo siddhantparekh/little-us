@@ -42,13 +42,22 @@ GitHub's Pages configuration supplies `PAGES_BASE_URL` at build time, which `nex
 
 ## Play on two phones
 
-1. Open the same deployed URL on both phones and keep both pages open.
-2. Host selects **Play together → Invite my partner → Create our invite**. Send the code through your usual messenger.
-3. Partner selects **I have an invite**, pastes the invite, and creates a reply code. Send the reply to the host.
-4. Host pastes the reply and chooses **Connect our phones**.
-5. The host controls game selection and new rounds; each partner plays their own turn. The host's personal pack is used for the session.
+1. Host selects **Play together → Invite my partner → Create our invite link**, then sends the link with **Copy link** or the system share sheet.
+2. Partner taps the link. The app reads the invite, joins automatically, and shows one short reply code.
+3. Partner sends that reply code back. Host taps **Paste**, then **Connect our phones**.
+4. The host controls game selection and new rounds; each partner plays their own turn. The host's personal pack is used for the session.
 
-The host validates moves and distributes authoritative state over an ordered WebRTC data channel. Game IDs and revisions reject stale actions. The channel is encrypted by WebRTC. Keep codes private: connection descriptions can contain network addressing information. Refreshing or closing either page ends the session; reconnect to begin a fresh round. No automatic background play or durable history is supported. The shared game state is designed for trusted partners, not cheat-resistant competitive play.
+Both pages must stay open throughout. **I have an invite** still accepts a pasted link or code for messengers that mangle links, and tapping an invite while the app is already open is handled too — that changes only the URL fragment, so the app listens for `hashchange` as well as reading the fragment on load.
+
+The return trip cannot be removed without a server. WebRTC needs both an offer and an answer, and this app has no signaling backend, so the invite can travel as a link but the reply has to come back by hand. The invite rides in the URL fragment, which browsers never send to the server, and is deflate-compressed to roughly a third of its raw size (a typical link is under 900 characters).
+
+The host validates moves and distributes authoritative state over an ordered WebRTC data channel. Game IDs and revisions reject stale actions. The channel is encrypted by WebRTC. Keep invite links private: connection descriptions can contain network addressing information. Refreshing or closing either page ends the session; reconnect to begin a fresh round. No automatic background play or durable history is supported. The shared game state is designed for trusted partners, not cheat-resistant competitive play.
+
+## First-run setup
+
+A browser with no saved details opens a four-step questionnaire: nicknames, an inside joke, a winner's prize, and six memories for the matching cards. Every step can be skipped, and **Surprise me** fills a step from the built-in suggestions. Blank answers fall back to the defaults, so the questionnaire never blocks a first game. **Make it a little more us** reopens the same steps later, with the progress dots acting as direct jumps for editing one answer.
+
+Details are saved to `localStorage` on that device only and are sent to a connected partner over the data channel. Guests arriving through an invite link skip the questionnaire, because the host's details are used for the session.
 
 This avoids operating a signaling server by asking users to exchange the connection details themselves. It still uses Google's public STUN endpoint to discover network addresses. There is no TURN relay, so some carrier NATs, corporate Wi-Fi, and other restricted networks cannot connect. Use another network or the one-phone mode in those cases. The game engine has automated tests; a real two-device WebRTC test across your target networks is still needed.
 

@@ -43,7 +43,7 @@ jobs:
 
       # The generated component catalog has pre-existing lint findings.
       - name: Lint application code
-        run: npx oxlint app lib/games.ts lib/peer.ts lib/games.test.ts
+        run: npx oxlint app lib/games.ts lib/peer.ts lib/invite.ts lib/games.test.ts
 
       - name: Read GitHub Pages configuration
         id: pages

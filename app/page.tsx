@@ -1,23 +1,24 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Heart, Sparkles, ArrowUpRight, Grid2X2, Radio, Link2, SlidersHorizontal, Check, Copy } from 'lucide-react';
+import { Heart, Sparkles, ArrowUpRight, Grid2X2, Radio, Link2, SlidersHorizontal, Check, Copy, Share2, Wand2, ArrowLeft, ClipboardPaste } from 'lucide-react';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { defaultPack, newGame, move, questions, type Action, type Game, type Pack, type Player, type State } from '@/lib/games';
+import { cleanPack, defaultPack, jokeIdeas, rewardIdeas, surprise, surpriseMemories, newGame, move, questions, NAME_LIMIT, LINE_LIMIT, type Action, type Game, type Pack, type Player, type State } from '@/lib/games';
 import { PeerSession } from '@/lib/peer';
+import { readCode, joinLink } from '@/lib/invite';
 
 const games = [
   { id: 'lines' as Game, title: 'Love Lines', sub: 'Tic-tac-toe, with feelings', icon: Heart, eyebrow: '01 / A FRIENDLY LITTLE RIVALRY', instruction: 'Three in a row. Infinite bragging rights.' },
   { id: 'brain' as Game, title: 'Same Brain', sub: 'Two minds. One answer?', icon: Radio, eyebrow: '02 / TUNE INTO EACH OTHER', instruction: 'Pick secretly. Your answers appear when you’ve both chosen.' },
   { id: 'memory' as Game, title: 'Memory Lane', sub: 'Made for a perfect pair', icon: Grid2X2, eyebrow: '03 / REMEMBER THE LITTLE THINGS', instruction: 'Flip two cards. Find a pair to score and go again.' },
 ];
-function cleanPack(value: unknown): Pack | null {
-  if (!value || typeof value !== 'object') return null;
-  const p = value as Pack;
-  if (!Array.isArray(p.names) || p.names.length !== 2 || !p.names.every(n => typeof n === 'string') || typeof p.joke !== 'string' || typeof p.reward !== 'string' || !Array.isArray(p.memories) || p.memories.length !== 6 || !p.memories.every(n => typeof n === 'string')) return null;
-  return { names: p.names.map((n,i) => n.trim().slice(0,24) || defaultPack.names[i]) as [string,string], joke: p.joke.slice(0,140), reward: p.reward.slice(0,140), memories: p.memories.map((n,i) => n.trim().slice(0,24) || defaultPack.memories[i]) };
-}
+const stages = [
+  { eyebrow: 'FIRST THINGS FIRST', title: 'What do we call you two?', blurb: 'Nicknames only. The sillier the better.' },
+  { eyebrow: 'THE IMPORTANT PART', title: 'What’s your inside joke?', blurb: 'It’ll turn up mid-game, exactly when you least expect it.' },
+  { eyebrow: 'RAISE THE STAKES', title: 'What does the winner get?', blurb: 'Keep it small. Keep it sweet. Keep it honest.' },
+  { eyebrow: 'ALMOST THERE', title: 'Six little things you’d never forget.', blurb: 'These become your matching cards in Memory Lane.' },
+];
 function validState(value: unknown): value is State {
   if (!value || typeof value !== 'object') return false;
   const s = value as State;
@@ -29,6 +30,9 @@ export default function Home() {
   const [pack, setPack] = useState<Pack>(defaultPack);
   const [draft, setDraft] = useState<Pack>(defaultPack);
   const [settings, setSettings] = useState(false);
+  const [stage, setStage] = useState(0);
+  const [firstRun, setFirstRun] = useState(false);
+  const [link, setLink] = useState('');
   const [connect, setConnect] = useState(false);
   const [status, setStatus] = useState('local');
   const [role, setRole] = useState<Player>(0);
@@ -51,15 +55,10 @@ export default function Home() {
   const activePlayer: Player = live ? role : state?.game === 'brain' ? (state.answers[0] === null ? 0 : 1) : state?.turn ?? 0;
   const canPlay = !remote || live && (state?.game === 'brain' || state?.turn === role);
 
-  // Browser-only random state and device preferences must initialize after hydration.
-  /* oxlint-disable react/react-compiler */
-  useEffect(() => {
-    const initial = newGame('lines'); stateRef.current = initial; setState(initial);
-    try { const saved = cleanPack(JSON.parse(localStorage.getItem('little-us-pack') || 'null')); if (saved) { setPack(saved); packRef.current = saved; } } catch { /* Device storage is optional. */ }
-    return () => session.current?.close();
-  }, []);
-  /* oxlint-enable react/react-compiler */
-
+  function openSetup(onboarding: boolean) {
+    setDraft(onboarding ? { names: ['', ''], joke: '', reward: '', memories: ['', '', '', '', '', ''] } : structuredClone(packRef.current));
+    setStage(0); setFirstRun(onboarding); setSettings(true);
+  }
   function update(next: State) { stateRef.current = next; setState(next); }
   function broadcast(next: State, nextPack = packRef.current) { session.current?.send({ type: 'state', state: next, pack: nextPack }); }
   function dispatch(action: Action) {
@@ -75,7 +74,7 @@ export default function Home() {
     update(next); setHanded(false); if (live) broadcast(next);
   }
   function disconnect() {
-    session.current?.close(); session.current = null; modeRef.current = 'local'; setStatus('local'); setRole(0); setStep('choose'); setInput(''); setOutput(''); setError('');
+    session.current?.close(); session.current = null; modeRef.current = 'local'; setStatus('local'); setRole(0); setStep('choose'); setInput(''); setOutput(''); setError(''); setLink('');
     update(newGame(state?.game ?? 'lines')); setHanded(false);
   }
   function makeSession(host: boolean) {
@@ -103,15 +102,15 @@ export default function Home() {
     session.current = nextSession; return nextSession;
   }
   async function createOffer() {
-    setBusy(true); setError(''); setOutput(''); setInput('');
-    try { const peer = makeSession(true); update(newGame(state?.game ?? 'lines')); setOutput(await peer.offer()); setStep('offer'); }
+    setBusy(true); setError(''); setOutput(''); setInput(''); setLink('');
+    try { const peer = makeSession(true); update(newGame(state?.game ?? 'lines')); const code = await peer.offer(); setOutput(code); setLink(joinLink(code)); setStep('offer'); }
     catch (e) { setError(e instanceof Error ? e.message : 'Could not create a connection.'); session.current?.close(); setStatus('local'); }
     finally { setBusy(false); }
   }
-  async function acceptOffer() {
+  async function acceptOffer(code = input) {
     setBusy(true); setError(''); setOutput('');
-    try { const peer = makeSession(false); setOutput(await peer.answer(input)); setStep('answer'); }
-    catch (e) { setError(e instanceof Error ? e.message : 'Could not read that code.'); session.current?.close(); setStatus('local'); }
+    try { const peer = makeSession(false); setOutput(await peer.answer(code)); setStep('answer'); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Could not read that invite.'); session.current?.close(); setStatus('local'); setStep('choose'); }
     finally { setBusy(false); }
   }
   async function finish() {
@@ -120,18 +119,52 @@ export default function Home() {
     catch (e) { setError(e instanceof Error ? e.message : 'Could not complete the connection.'); }
     finally { setBusy(false); }
   }
-  async function copyCode() {
-    try { await navigator.clipboard.writeText(output); setCopied(true); }
-    catch { setError('Select the connection code below and copy it manually.'); }
+  async function copyText(text: string) {
+    try { await navigator.clipboard.writeText(text); setCopied(true); setError(''); }
+    catch { setError('Select the text below and copy it manually.'); }
+  }
+  async function shareInvite() {
+    if (!navigator.share) return copyText(link);
+    try { await navigator.share({ title: 'Little Us', text: 'Come play Little Us with me ♥', url: link }); }
+    catch { /* A dismissed share sheet is not a failure. */ }
+  }
+  async function pasteReply() {
+    try { setInput(readCode(await navigator.clipboard.readText())); setError(''); }
+    catch { setError('Paste their reply code into the box below.'); }
   }
   function savePack() {
     const next = cleanPack(draft); if (!next) return;
     setPack(next); packRef.current = next;
-    try { localStorage.setItem('little-us-pack', JSON.stringify(next)); setNotice('Your little details are saved on this device.'); }
+    try { localStorage.setItem('little-us-pack', JSON.stringify(next)); setNotice(firstRun ? 'You’re all set. Go win something. ♥' : 'Your little details are saved on this device.'); }
     catch { setNotice('Your details work for this visit. This browser couldn’t save them.'); }
     if (live && stateRef.current) broadcast(stateRef.current, next);
     setSettings(false);
   }
+
+  // An invite arrives in the fragment, which browsers never send to a server. Tapping
+  // one while the app is already open only changes the fragment and never reloads the
+  // page, so the same handler has to run again on hashchange.
+  function consumeInvite() {
+    if (!/[#?&]j=/.test(location.hash)) return false;
+    const invite = readCode(location.hash);
+    history.replaceState(null, '', location.pathname + location.search);
+    setConnect(true); void acceptOffer(invite);
+    return true;
+  }
+
+  // Browser-only random state, device preferences and any invite in the URL must
+  // wait for hydration. Declared last so nothing here is called before it exists.
+  /* oxlint-disable react/react-compiler */
+  useEffect(() => {
+    const initial = newGame('lines'); stateRef.current = initial; setState(initial);
+    let saved: Pack | null = null;
+    try { saved = cleanPack(JSON.parse(localStorage.getItem('little-us-pack') || 'null')); if (saved) { setPack(saved); packRef.current = saved; } } catch { /* Device storage is optional. */ }
+    if (!consumeInvite() && !saved) openSetup(true);
+    const onHash = () => { consumeInvite(); };
+    addEventListener('hashchange', onHash);
+    return () => { removeEventListener('hashchange', onHash); session.current?.close(); };
+  }, []);
+  /* oxlint-enable react/react-compiler */
 
   return <main className="arcade">
     <header className="masthead"><div className="brand">little us<span>♥</span></div><span className="edition">A TINY ARCADE FOR TWO</span><button className="pill" onClick={() => setConnect(true)}><Link2 size={16}/>{live ? 'You’re connected' : 'Play together'}</button></header>
@@ -139,7 +172,7 @@ export default function Home() {
     <div className="workspace"><aside className="game-menu"><p className="eyebrow">PICK YOUR LITTLE MOMENT</p>
       {games.map(g => <button key={g.id} disabled={guest || remote && !live} aria-pressed={selected.id === g.id} className={'game-option ' + (selected.id === g.id ? 'active' : '')} onClick={() => start(g.id)}><g.icon/><span><strong>{g.title}</strong><small>{g.sub}</small></span><ArrowUpRight/></button>)}
       <div className="little-note"><Sparkles size={22}/><p>Winning is cute.<br/>Being your teammate? Cuter.</p><span>FROM THE PEANUT GALLERY</span></div>
-      <button className="personalise" disabled={guest} onClick={() => { setDraft(structuredClone(pack)); setSettings(true); }}><SlidersHorizontal size={16}/> Make it a little more us <ArrowUpRight size={16}/></button>
+      <button className="personalise" disabled={guest} onClick={() => openSetup(false)}><SlidersHorizontal size={16}/> Make it a little more us <ArrowUpRight size={16}/></button>
     </aside>
     <section className="play-surface" aria-label={selected.title}>
       <div className="game-heading"><div><p className="eyebrow">{selected.eyebrow}</p><h2>{selected.title}</h2></div><span className="badge">2 PLAYERS · {selected.id === 'memory' ? '2' : '1'} MIN</span></div>
@@ -161,23 +194,35 @@ export default function Home() {
     {notice && <output className="notice">{notice}</output>}
     <footer><span>LESS SCROLLING. MORE US.</span><span>Made for your kind of weird. ♥</span></footer>
 
-    <Dialog open={settings} onOpenChange={setSettings}><DialogContent className="app-dialog"><DialogTitle className="dialog-title">A little more us.</DialogTitle><DialogDescription>These details stay on this device and are shared with your connected partner.</DialogDescription><form onSubmit={e => { e.preventDefault(); savePack(); }}>
-      <div className="field-pair">{draft.names.map((name,i) => <label key={i}>{i === 0 ? 'Your nickname (host)' : 'Partner’s nickname'}<input maxLength={24} required value={name} onChange={e => setDraft(d => ({ ...d, names: d.names.map((n,j) => j === i ? e.target.value : n) as [string,string] }))}/></label>)}</div>
-      <label>Your inside joke<textarea maxLength={140} value={draft.joke} onChange={e => setDraft(d => ({ ...d, joke: e.target.value }))}/></label>
-      <label>A sweet reward or gesture<textarea maxLength={140} placeholder="A love note? A cup of tea? You two decide." value={draft.reward} onChange={e => setDraft(d => ({ ...d, reward: e.target.value }))}/></label>
-      <fieldset><legend>Six little memories for your matching cards</legend><div className="field-pair">{draft.memories.map((memory,i) => <label key={i} className="memory-input"><span className="sr-only">Memory {i+1}</span><input required maxLength={24} value={memory} onChange={e => setDraft(d => ({ ...d, memories: d.memories.map((m,j) => j === i ? e.target.value : m) }))}/></label>)}</div></fieldset>
-      <button type="submit" className="primary-button full-width">Save our little details <Heart size={16}/></button>
-    </form></DialogContent></Dialog>
+    <Dialog open={settings} onOpenChange={open => open ? setSettings(true) : savePack()}><DialogContent className="app-dialog">
+      <p className="eyebrow">{stages[stage].eyebrow} · {stage+1} OF {stages.length}</p>
+      <DialogTitle className="dialog-title">{stages[stage].title}</DialogTitle>
+      <DialogDescription>{stages[stage].blurb}</DialogDescription>
+      <form onSubmit={e => { e.preventDefault(); if (stage < stages.length-1) setStage(stage+1); else savePack(); }}>
+        {stage === 0 && <div className="field-pair">{draft.names.map((name,i) => <label key={i}>{i === 0 ? 'You' : 'Your favourite person'}<input maxLength={NAME_LIMIT} placeholder={defaultPack.names[i]} value={name} onChange={e => setDraft(d => ({ ...d, names: d.names.map((n,j) => j === i ? e.target.value : n) as [string,string] }))}/></label>)}</div>}
+        {stage === 1 && <><label>The joke you’d have to explain to anyone else<textarea maxLength={LINE_LIMIT} placeholder={defaultPack.joke} value={draft.joke} onChange={e => setDraft(d => ({ ...d, joke: e.target.value }))}/></label><button type="button" className="text-button" onClick={() => setDraft(d => ({ ...d, joke: surprise(jokeIdeas, d.joke || defaultPack.joke) }))}><Wand2 size={15}/> Can’t think of one? Surprise me</button></>}
+        {stage === 2 && <><label>The prize<textarea maxLength={LINE_LIMIT} placeholder={defaultPack.reward} value={draft.reward} onChange={e => setDraft(d => ({ ...d, reward: e.target.value }))}/></label><button type="button" className="text-button" onClick={() => setDraft(d => ({ ...d, reward: surprise(rewardIdeas, d.reward || defaultPack.reward) }))}><Wand2 size={15}/> Surprise me</button></>}
+        {stage === 3 && <><fieldset><legend className="sr-only">Six little memories</legend><div className="field-pair">{draft.memories.map((memory,i) => <label key={i} className="memory-input"><span className="sr-only">Memory {i+1}</span><input maxLength={NAME_LIMIT} placeholder={defaultPack.memories[i]} value={memory} onChange={e => setDraft(d => ({ ...d, memories: d.memories.map((m,j) => j === i ? e.target.value : m) }))}/></label>)}</div></fieldset><button type="button" className="text-button" onClick={() => setDraft(d => ({ ...d, memories: surpriseMemories(d.memories.some(Boolean) ? d.memories : defaultPack.memories) }))}><Wand2 size={15}/> Surprise me</button></>}
+        <div className="stage-dots">{stages.map((s,i) => <button key={i} type="button" aria-label={'Step ' + (i+1) + ': ' + s.title} aria-current={i === stage} className={i === stage ? 'active' : ''} onClick={() => setStage(i)}/>)}</div>
+        <div className="stage-actions">
+          {stage > 0 && <button type="button" className="text-button" onClick={() => setStage(stage-1)}><ArrowLeft size={15}/> Back</button>}
+          <button type="submit" className="primary-button">{stage < stages.length-1 ? 'Next' : firstRun ? 'Let’s play' : 'Save our little details'} <Heart size={16}/></button>
+        </div>
+        {firstRun && <button type="button" className="text-button skip" onClick={savePack}>Skip · we’ll sort it out later</button>}
+      </form>
+    </DialogContent></Dialog>
 
-    <Dialog open={connect} onOpenChange={setConnect}><DialogContent className="app-dialog"><DialogTitle className="dialog-title">Two phones. One little us.</DialogTitle><DialogDescription>Keep this page open on both phones. Exchange connection codes through your usual messenger.</DialogDescription>
+    <Dialog open={connect} onOpenChange={setConnect}><DialogContent className="app-dialog"><DialogTitle className="dialog-title">Two phones. One little us.</DialogTitle><DialogDescription>Send a link, get one short code back, and you’re playing. Keep this page open on both phones.</DialogDescription>
       {live ? <div className="connection-success"><Check size={32}/><h3>You’re connected.</h3><p>You play as {pack.names[role]}. Your game moves go directly between the browsers.</p><button className="primary-button" onClick={() => setConnect(false)}>Back to our game</button><button className="text-button" onClick={disconnect}>Disconnect & play on one phone</button></div> : <>
-        {step === 'choose' && <Tabs defaultValue="host" onValueChange={() => { setError(''); setInput(''); }}><TabsList className="connect-tabs"><TabsTrigger value="host">Invite my partner</TabsTrigger><TabsTrigger value="join">I have an invite</TabsTrigger></TabsList><TabsContent value="host"><p>Start a fresh session, then send the invite code to your partner.</p><button disabled={busy} className="primary-button full-width" onClick={createOffer}>{busy ? 'Finding a way to connect…' : 'Create our invite'}</button></TabsContent><TabsContent value="join"><label>Paste your partner’s invite code<textarea className="code-area" value={input} onChange={e => setInput(e.target.value)} placeholder="LU1.…" spellCheck={false}/></label><button disabled={busy || !input.trim()} className="primary-button full-width" onClick={acceptOffer}>{busy ? 'Preparing your reply…' : 'Create my reply code'}</button></TabsContent></Tabs>}
-        {output && <div className="code-output"><p><strong>{step === 'offer' ? '1. Send this invite code to your partner.' : 'Send this reply code back to your partner.'}</strong></p><textarea aria-label="Your connection code" className="code-area" readOnly value={output} onFocus={e => e.target.select()}/><button className="primary-button full-width" onClick={copyCode}>{copied ? <Check size={16}/> : <Copy size={16}/>} {copied ? 'Copied · ready to paste' : 'Copy connection code'}</button></div>}
-        {step === 'offer' && <><label>2. Paste the reply code they send back<textarea className="code-area" value={input} onChange={e => setInput(e.target.value)} placeholder="LU1.…" spellCheck={false}/></label><button disabled={busy || !input.trim()} className="primary-button full-width" onClick={finish}>{busy ? 'Connecting…' : 'Connect our phones'}</button></>}
-        {(step === 'answer' || step === 'waiting') && <output>Waiting for your browsers to connect. Keep both pages open.</output>}
+        {step === 'choose' && (busy ? <output>Opening your invite…</output> : <Tabs defaultValue="host" onValueChange={() => { setError(''); setInput(''); }}><TabsList className="connect-tabs"><TabsTrigger value="host">Invite my partner</TabsTrigger><TabsTrigger value="join">I have an invite</TabsTrigger></TabsList><TabsContent value="host"><p>We’ll make you a link. Send it, they tap it, they’re in.</p><button disabled={busy} className="primary-button full-width" onClick={createOffer}>{busy ? 'Finding a way to connect…' : 'Create our invite link'}</button></TabsContent><TabsContent value="join"><label>Paste the invite link they sent you<textarea className="code-area" value={input} onChange={e => setInput(e.target.value)} placeholder="https://…#j=LU2.… or LU2.…" spellCheck={false}/></label><button disabled={busy || !input.trim()} className="primary-button full-width" onClick={() => acceptOffer()}>{busy ? 'Preparing your reply…' : 'Join the game'}</button></TabsContent></Tabs>)}
+        {step === 'offer' && <><div className="code-output"><p><strong>1. Send this link to {pack.names[1]}.</strong></p><input aria-label="Your invite link" className="link-area" readOnly value={link} onFocus={e => e.target.select()}/><div className="share-row"><button className="primary-button" onClick={() => copyText(link)}>{copied ? <Check size={16}/> : <Copy size={16}/>} {copied ? 'Copied' : 'Copy link'}</button>{typeof navigator !== 'undefined' && 'share' in navigator && <button className="primary-button" onClick={shareInvite}><Share2 size={16}/> Share</button>}</div></div>
+          <label>2. They’ll send back a short reply code. Paste it here.<textarea className="code-area" value={input} onChange={e => setInput(e.target.value)} placeholder="LU2.…" spellCheck={false}/></label>
+          <div className="share-row"><button type="button" className="primary-button" onClick={pasteReply}><ClipboardPaste size={16}/> Paste</button><button disabled={busy || !input.trim()} className="primary-button" onClick={finish}>{busy ? 'Connecting…' : 'Connect our phones'}</button></div></>}
+        {step === 'answer' && <div className="code-output"><p><strong>Almost there. Send this reply code back to your partner.</strong></p><textarea aria-label="Your reply code" className="code-area" readOnly value={output} onFocus={e => e.target.select()}/><button className="primary-button full-width" onClick={() => copyText(output)}>{copied ? <Check size={16}/> : <Copy size={16}/>} {copied ? 'Copied · send it over' : 'Copy reply code'}</button><output>Then keep this page open. You’ll connect automatically.</output></div>}
+        {step === 'waiting' && <output>Waiting for your browsers to connect. Keep both pages open.</output>}
         <p role="alert" className="error">{error}</p>
         <button className="text-button" disabled={busy} onClick={() => { disconnect(); setCopied(false); }}>Reset connection / play on one phone</button>
-        <details className="connection-details"><summary>About the connection</summary><p>No accounts or game server are needed by the app. A public Google STUN service helps the browsers find each other; some mobile or restricted networks need a relay, which this version doesn’t include. Closing or refreshing a page ends the session. Share connection codes only with your partner.</p></details>
+        <details className="connection-details"><summary>About the connection</summary><p>No accounts or game server are needed by the app. Your invite lives in the part of the link browsers never send to a server, and it carries the connection details for your device. A public Google STUN service helps the browsers find each other; some mobile or restricted networks need a relay, which this version doesn’t include. Closing or refreshing a page ends the session. Send invite links only to your partner.</p></details>
       </>}
     </DialogContent></Dialog>
   </main>;

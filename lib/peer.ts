@@ -1,5 +1,7 @@
 // Manual signaling: users exchange an offer and answer through their own messenger.
 // Only a public STUN lookup is used. There is deliberately no signaling or TURN backend.
+import { encodeInvite, decodeInvite } from './invite';
+
 export class PeerSession {
   pc: RTCPeerConnection;
   channel: RTCDataChannel | null = null;
@@ -30,20 +32,11 @@ export class PeerSession {
       const check = () => { if (this.pc.iceGatheringState === 'complete') { clearTimeout(timeout); this.pc.removeEventListener('icegatheringstatechange', check); resolve(); } };
       this.pc.addEventListener('icegatheringstatechange', check);
     });
-    const text = JSON.stringify({ type: this.pc.localDescription?.type, sdp: this.pc.localDescription?.sdp });
-    return 'LU1.' + btoa(text);
-  }
-  private decode(code: string, type: 'offer' | 'answer'): RTCSessionDescriptionInit {
-    const clean = code.replace(/\s/g, '');
-    if (!clean.startsWith('LU1.') || clean.length > 24000) throw new Error('Paste the complete Little Us connection code.');
-    let parsed;
-    try { parsed = JSON.parse(atob(clean.slice(4))); } catch { throw new Error('That code looks incomplete. Copy and paste it again.'); }
-    if (parsed.type !== type || typeof parsed.sdp !== 'string') throw new Error('Expected your partner’s ' + type + ' code.');
-    return { type, sdp: parsed.sdp };
+    return encodeInvite(this.pc.localDescription);
   }
   private waitForConnection() { this.timer = setTimeout(() => { if (this.channel?.readyState !== 'open') this.onStatus('timeout'); }, 120000); }
   async offer() { await this.pc.setLocalDescription(await this.pc.createOffer()); return this.code(); }
-  async answer(code: string) { await this.pc.setRemoteDescription(this.decode(code, 'offer')); await this.pc.setLocalDescription(await this.pc.createAnswer()); const answer = await this.code(); this.waitForConnection(); return answer; }
-  async finish(code: string) { await this.pc.setRemoteDescription(this.decode(code, 'answer')); this.waitForConnection(); }
+  async answer(code: string) { await this.pc.setRemoteDescription(await decodeInvite(code, 'offer')); await this.pc.setLocalDescription(await this.pc.createAnswer()); const answer = await this.code(); this.waitForConnection(); return answer; }
+  async finish(code: string) { await this.pc.setRemoteDescription(await decodeInvite(code, 'answer')); this.waitForConnection(); }
   close() { clearTimeout(this.timer); this.pc.onconnectionstatechange = null; if (this.channel) { this.channel.onclose = null; this.channel.onerror = null; this.channel.onopen = null; } this.channel?.close(); this.pc.close(); }
 }

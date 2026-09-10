@@ -2,6 +2,34 @@ export type Game = 'lines' | 'brain' | 'memory';
 export type Player = 0 | 1;
 export type Pack = { names: [string, string]; joke: string; reward: string; memories: string[] };
 export const defaultPack: Pack = { names: ['Player one', 'Player two'], joke: 'Certified silly goose behaviour.', reward: 'Winner picks the next date-night movie.', memories: ['First date', 'Our song', 'Midnight snack', 'That trip', 'Your smile', 'Home'] };
+export const NAME_LIMIT = 24, LINE_LIMIT = 140;
+// Shared by the setup questionnaire and by packs arriving from a peer, so a
+// blank or hostile field always lands on something the games can print.
+export function cleanPack(value: unknown): Pack | null {
+  if (!value || typeof value !== 'object') return null;
+  const p = value as Pack;
+  if (!Array.isArray(p.names) || p.names.length !== 2 || !p.names.every(n => typeof n === 'string') || typeof p.joke !== 'string' || typeof p.reward !== 'string' || !Array.isArray(p.memories) || p.memories.length !== 6 || !p.memories.every(n => typeof n === 'string')) return null;
+  const trim = (text: string, limit: number, fallback: string) => text.trim().slice(0, limit) || fallback;
+  return {
+    names: p.names.map((n, i) => trim(n, NAME_LIMIT, defaultPack.names[i])) as [string, string],
+    joke: trim(p.joke, LINE_LIMIT, defaultPack.joke),
+    reward: trim(p.reward, LINE_LIMIT, defaultPack.reward),
+    memories: p.memories.map((n, i) => trim(n, NAME_LIMIT, defaultPack.memories[i])),
+  };
+}
+export const jokeIdeas = ['Certified silly goose behaviour.', 'We argue about the thermostat more than anything else.', 'One of us is always “five minutes away”.', 'We have a song and neither of us admits it.', 'Somebody still owes somebody a pancake.'];
+export const rewardIdeas = ['Winner picks the next date-night movie.', 'Loser makes the tea, winner picks the mug.', 'Winner gets one guilt-free hour of choosing everything.', 'A very long hug, no negotiating.', 'Winner picks dinner. Loser has to be enthusiastic.'];
+export const memoryIdeas = [['First date', 'Our song', 'Midnight snack', 'That trip', 'Your smile', 'Home'], ['The bad movie', 'Rainy walk', 'Burnt dinner', 'That playlist', 'Your laugh', 'Sunday mornings'], ['Airport hug', 'Shared dessert', 'The long drive', 'Our bench', 'Bad haircut', 'First “hey”']];
+// A questionnaire that ends where it started is no fun, so never re-offer the current line.
+export function surprise(list: string[], current: string): string {
+  const rest = list.filter(item => item !== current);
+  return rest.length ? rest[Math.floor(Math.random() * rest.length)] : list[0];
+}
+export function surpriseMemories(current: string[]): string[] {
+  const key = current.join('|');
+  const rest = memoryIdeas.filter(set => set.join('|') !== key);
+  return [...(rest.length ? rest[Math.floor(Math.random() * rest.length)] : memoryIdeas[0])];
+}
 export const questions = [
   { q: 'An unexpected free evening. We’re definitely…', a: ['Ordering in', 'Going on a walk', 'Having a movie marathon', 'Going on an adventure'] },
   { q: 'Our relationship as a snack?', a: ['Sweet & salty popcorn', 'Extra cheesy pizza', 'Spicy noodles', 'A comfort cookie'] },
