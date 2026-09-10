@@ -26,6 +26,20 @@ The production build exports `dist/client/`. Upload that directory to any HTTPS 
 
 The generated component catalog has existing repository-wide lint findings. The authored app and game/connection modules pass the scoped lint command above; vendored components have not been rewritten to silence them.
 
+## Automatic GitHub Pages deployment
+
+The workflow in `.github/workflows/deploy-pages.yml` runs on every push to `main`, or manually from the repository's Actions tab. It installs locked dependencies with Node 24, runs game tests, checks TypeScript and application lint, builds the static export, then deploys only `dist/client/` to GitHub Pages. Failed checks prevent deployment. It does not deploy to Sites.
+
+One-time setup:
+
+1. In [this repository's Pages settings](https://github.com/siddhantparekh/little-us/settings/pages), choose **GitHub Actions** under **Build and deployment → Source**.
+2. Commit and push the workflow and `next.config.ts` changes to `main`.
+3. Open **Actions → Build and deploy to GitHub Pages** to follow the run. The deployment job reports the resulting URL (normally `https://siddhantparekh.github.io/little-us/`).
+
+The workflow uses GitHub's built-in token; no personal access token or hosting secret is needed. Pages must be available for the repository's visibility and account plan. See [GitHub's custom Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+
+GitHub's Pages configuration supplies `PAGES_BASE_URL` at build time, which `next.config.ts` uses as the asset prefix, so scripts and styles resolve under `/little-us/` as well as a custom domain. Local development still uses relative paths when the variable is unset. Generated files do not need to be committed; CI rebuilds them from source.
+
 ## Play on two phones
 
 1. Open the same deployed URL on both phones and keep both pages open.
